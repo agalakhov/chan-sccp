@@ -2527,6 +2527,22 @@ static boolean_t sccp_astwrap_createRtpInstance(constDevicePtr d, constChannelPt
 			ast_rtp_codecs_payloads_unset(ast_rtp_instance_get_codecs(instance), instance, 101);
  		}
 		ast_rtp_codecs_payload_replace_format(ast_rtp_instance_get_codecs(instance), 25, ast_format_slin16);				// replace slin16 RTPPayloadType=25 (wideband-256)
+#if ASTERISK_VERSION_GROUP >= 120
+		/* Asterisk 20 dropped the static_RTP_PT[] fallback for the tx-direction
+		 * payload lookup (see ast_rtp_codecs_payload_code_tx_sample_rate in
+		 * main/rtp_engine.c — it now only iterates codecs->payload_mapping_tx).
+		 * Without explicit registration for the standard audio payload types,
+		 * res_rtp_asterisk emits "Don't know how to send format alaw packets"
+		 * the first time it tries to write outbound audio. Seeding the table
+		 * with the well-known payloads keeps inbound calls audible. */
+		{
+			static const int sccp_audio_static_payloads[] = { 0, 3, 4, 8, 9, 13, 18 };  // ulaw, gsm, g723, alaw, g722, cn, g729
+			size_t i;
+			for (i = 0; i < ARRAY_LEN(sccp_audio_static_payloads); i++) {
+				ast_rtp_codecs_payloads_set_m_type(ast_rtp_instance_get_codecs(instance), instance, sccp_audio_static_payloads[i]);
+			}
+		}
+#endif
 	}
 
 	ast_rtp_codecs_set_framing(ast_rtp_instance_get_codecs(instance), ast_format_cap_get_framing(ast_channel_nativeformats(c->owner)));
@@ -3065,10 +3081,23 @@ DECLARE_PBX_CHANNEL_STRGET(name)
     DECLARE_PBX_CHANNEL_STRGET(linkedid)
     DECLARE_PBX_CHANNEL_STRGET(context)
     DECLARE_PBX_CHANNEL_STRSET(context)
+#if defined(ASTERISK_CONF_1_21) || defined(ASTERISK_CONF_1_22)
+    /* Asterisk 21 removed the macro subsystem (app_macro). channel.h still DECLARES
+     * ast_channel_macroexten()/ast_channel_macrocontext(), so the old DECLARE_PBX_CHANNEL_*
+     * wrappers still compile cleanly -- but the symbols are no longer exported by the
+     * asterisk binary, so the module fails at load with "undefined symbol:
+     * ast_channel_macroexten". Provide inert stubs to keep the pbx interface struct
+     * complete. Macros do not exist on this Asterisk, so there is nothing to report. */
+    static const char *sccp_astwrap_get_channel_macroexten(constChannelPtr channel) { (void)channel; return ""; }
+    static void sccp_astwrap_set_channel_macroexten(constChannelPtr channel, const char *macroexten) { (void)channel; (void)macroexten; }
+    static const char *sccp_astwrap_get_channel_macrocontext(constChannelPtr channel) { (void)channel; return ""; }
+    static void sccp_astwrap_set_channel_macrocontext(constChannelPtr channel, const char *macrocontext) { (void)channel; (void)macrocontext; }
+#else
     DECLARE_PBX_CHANNEL_STRGET(macroexten)
     DECLARE_PBX_CHANNEL_STRSET(macroexten)
     DECLARE_PBX_CHANNEL_STRGET(macrocontext)
     DECLARE_PBX_CHANNEL_STRSET(macrocontext)
+#endif
     DECLARE_PBX_CHANNEL_STRGET(call_forward)
     DECLARE_PBX_CHANNEL_STRSET(call_forward)
 

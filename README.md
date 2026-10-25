@@ -1,14 +1,40 @@
 ## Welcome to Chan_SCCP
 
+> ### About this fork
+>
+> This is a **maintained fork** of [chan-sccp/chan-sccp](https://github.com/chan-sccp/chan-sccp),
+> the SCCP (Cisco Skinny) channel driver for Asterisk originally written and maintained by
+> Diederik de Groot, David Dederscheck and the Chan-SCCP contributors. **All credit for
+> chan_sccp belongs to them** -- this fork is a thin layer of version-compatibility work on
+> top of years of their effort.
+>
+> Upstream `develop` has not moved since **December 2023**, and its `configure.ac` still caps
+> support at Asterisk 13 (`MAX_ASTERISK_VERSION=113`) even though `ast114`-`ast119`
+> implementations are present in the tree. That makes it unbuildable against current
+> Asterisk without patching.
+>
+> This fork adds:
+> * **Asterisk 20 LTS** support (`ast120`)
+> * **Asterisk 21 and 22 LTS** support (`ast121`, `ast122`) -- including the `app_macro`
+>   removal in Asterisk 21, which makes an otherwise clean build fail at *module load*.
+>   See [Asterisk 21 / 22](#asterisk-21--22).
+> * an `acinclude.m4` fix so `./configure` survives a fresh `autoreconf`
+> * a recipe for [adding a new Asterisk version](#adding-support-for-a-new-asterisk-version)
+>
+> Verified on Asterisk 20.21.0 and 22.11.0 with Cisco 7925G handsets registering, placing
+> calls and passing two-way audio. Changes were offered upstream; upstream appears inactive.
+> If it becomes active again, these branches are intended to be merged back.
+>
+> Issues and pull requests for *this fork* belong here. Please direct thanks -- and
+> donations -- to the original project (links below).
+
+[![Build GH Status](https://github.com/russellmarine/chan-sccp/workflows/CI/badge.svg)](https://github.com/russellmarine/chan-sccp/actions?query=workflow%3ACI)
+[![Github Releases](https://img.shields.io/github/release/russellmarine/chan-sccp.svg)](https://github.com/russellmarine/chan-sccp/releases)
+[![Open issues](https://img.shields.io/github/issues/russellmarine/chan-sccp.svg)](https://github.com/russellmarine/chan-sccp/issues)
+
+Original project -- please support it:
+[![Upstream](https://img.shields.io/badge/upstream-chan--sccp%2Fchan--sccp-blue.svg)](https://github.com/chan-sccp/chan-sccp)
 [![Gitter](https://badges.gitter.im/chan-sccp/chan-sccp.svg)](https://gitter.im/chan-sccp/chan-sccp?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
-[![Build TR Status](http://img.shields.io/travis/chan-sccp/chan-sccp.svg?style=flat&branch=develop)](https://travis-ci.com/chan-sccp/chan-sccp)
-[![Build GH Status](https://github.com/chan-sccp/chan-sccp/workflows/CI/badge.svg)](https://github.com/chan-sccp/chan-sccp/actions?query=workflow%3ACI)
-[![Coverity](https://img.shields.io/coverity/scan/8656.svg)](https://scan.coverity.com/projects/chan-sccp)
-[![Language grade: C/C++](https://img.shields.io/lgtm/grade/cpp/g/chan-sccp/chan-sccp.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/chan-sccp/chan-sccp/context:cpp)
-[![Average time to resolve an issue](http://isitmaintained.com/badge/resolution/chan-sccp/chan-sccp.svg)](https://github.com/chan-sccp/chan-sccp/issues "Average time to resolve an issue")
-[![Percentage of issues still open](http://isitmaintained.com/badge/open/chan-sccp/chan-sccp.svg)](https://github.com/chan-sccp/chan-sccp/issues?utf8=✓&q=is%3Aopen+is%3Aissue+-label%3Aenhancement+ "Percentage of issues still open")
-[![Download Chan-SCCP channel driver for Asterisk](https://img.shields.io/sourceforge/dt/chan-sccp-b.svg)](https://github.com/chan-sccp/chan-sccp/releases/latest)
-[![Github Releases](https://img.shields.io/github/release/chan-sccp/chan-sccp.svg)](https://github.com/chan-sccp/chan-sccp/releases)
 [![Documentation](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/chan-sccp/chan-sccp/wiki)
 [![Donate](https://img.shields.io/badge/paypal-donate-yellow.svg)](https://www.paypal.com/cgi-bin/webscr?item_name=Donation+to+Chan-SCCP+channel+driver+for+Asterisk&locale.x=en_US&cmd=_donations&business=chan.sccp.b.pp%40gmail.com)
 [![Liberapay](https://img.shields.io/liberapay/receives/chan-sccp.svg?logo=liberapay)](https://liberapay.com/chan-sccp/donate).
@@ -24,6 +50,8 @@ For building and installation instructions please see the INSTALL file.
 * [Chat](#Chat)
 * [Quick Start](#Quick-Start)
   * [Prerequisites](#Prerequisites)
+  * [Asterisk 21 / 22](#asterisk-21--22)
+  * [Adding support for a new Asterisk version](#adding-support-for-a-new-asterisk-version)
   * [Building from source](#Building-from-source)
   * [Configuring](#Configuring)
   * [Build and Install](#Build-and-Install)
@@ -57,15 +85,63 @@ Make sure you have the following installed on your system:
   - libssl-dev / openssl-devel
 - pbx:
   - asterisk >= 11 (absolute minimum)
-  - asterisk >= 16 or 18 recommended
+  - asterisk 16, 18, 20 or 22 LTS recommended (21 also builds; see "Asterisk 21 / 22" below)
   - including source headers and debug symbols (asterisk-dev and asterisk-dbg / asterisk-devel and asterisk-debug-info)
   - chan_skinny module is prevented from loading in /etc/asterisk/modules.conf
 - standard posix compatible applications like sed, awk, tr
 
+### Asterisk 21 / 22
+
+Asterisk 21 and 22 are supported via `src/pbx_impl/ast121/` and `ast122/`, which -- like
+`ast120/` before them -- are symlink shims onto the `ast116/` implementation. The Asterisk
+channel API used by chan_sccp has been stable across 16 -> 22, so no separate implementation
+is needed.
+
+There is one behavioural difference worth knowing about:
+
+**The macro subsystem is gone.** Asterisk 21 removed `app_macro`, so
+`ast_channel_macroexten()` and `ast_channel_macrocontext()` no longer exist. Awkwardly,
+`channel.h` still *declares* both functions, so code calling them compiles perfectly
+cleanly and then fails at module load:
+
+    Error loading module 'chan_sccp.so': undefined symbol: ast_channel_macroexten
+
+chan_sccp therefore compiles those four `DECLARE_PBX_CHANNEL_STRGET/STRSET` wrappers only
+on Asterisk <= 20, and substitutes inert stubs on 21+. `getChannelMacroExten` and friends
+remain present on the pbx interface struct but return an empty string; there are no macros
+on these Asterisk versions, so there is nothing to report.
+
+If you are porting to a newer Asterisk yourself, note that **a clean compile is not
+sufficient evidence** that the module works. Always finish by confirming the module
+actually loads:
+
+    asterisk -rx "module show like sccp"
+
+### Adding support for a new Asterisk version
+
+The version directories are mechanical. To add `astNNN` (e.g. ast123 for Asterisk 23):
+
+1. `mkdir src/pbx_impl/astNNN` and symlink the implementation:
+   `ln -s ../ast116/ast116.c astNNN.c` and `ln -s ../ast116/ast116.h astNNN.h`
+2. Copy `Makefile.am` from an existing version directory, replacing the version number.
+   **Also copy `Makefile.in` the same way** -- automake cannot generate it, because
+   `AC_CONFIG_FILES` refers to `ast${ASTERISK_VER_GROUP}/Makefile`, a value only known at
+   configure time.
+3. Raise `MAX_ASTERISK_VERSION` in `configure.ac`.
+4. Add an `AC_DEFINE([ASTERISK_CONF_1_NN], ...)` case to `autoconf/asterisk.m4` -- there are
+   **two** switch statements and both need it.
+5. Add the matching `#ifdef ASTERISK_CONF_1_NN` include to `src/pbx_impl/ast/ast.h`.
+6. `autoreconf -fi`, then `./configure --with-asterisk-version=NN.M`, `make`, `make install`,
+   and confirm the module loads.
+
+Then fix whatever the loader complains about -- that, not the compiler, is where removed
+APIs show up.
+
 ### Building from source
 #### Using git (recommended)
 ##### Clone github repository (once)
-    git clone https://github.com/chan-sccp/chan-sccp.git chan-sccp
+    git clone https://github.com/russellmarine/chan-sccp.git chan-sccp
+    # upstream (unmaintained since 2023): https://github.com/chan-sccp/chan-sccp.git
     cd chan-sccp
 
 ##### Update to latest state
@@ -74,7 +150,7 @@ Make sure you have the following installed on your system:
     git pull
 
 #### Using Released tar.gz
-retrieve the tar.gz from [latest release](https://github.com/chan-sccp/chan-sccp/releases/latest) and save it to /tmp/chan-sccp_latest.tar.gz
+retrieve the tar.gz from [latest release](https://github.com/russellmarine/chan-sccp/releases/latest) and save it to /tmp/chan-sccp_latest.tar.gz
 
     mkdir chan-sccp
     cd chan-sccp
